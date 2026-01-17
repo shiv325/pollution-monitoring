@@ -4,25 +4,13 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
-from app.utils import SECRET_KEY, ALGORITHM
-from app.routes.auth import get_current_user
-
+from app.core.security import oauth2_scheme, SECRET_KEY, ALGORITHM
 
 credentials_exception = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Could not validate credentials",
     headers={"WWW-Authenticate": "Bearer"},
 )
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
-
-def admin_only(current_user: models.User = Depends(get_current_user)):
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admins only"
-        )
-    return current_user
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     try:
@@ -41,3 +29,19 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
 
     return user
+
+def admin_only(current_user: models.User = Depends(get_current_user)):
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admins only"
+        )
+    return current_user
+
+def get_current_admin(current_user: models.User = Depends(get_current_user)):
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )
+    return current_user
