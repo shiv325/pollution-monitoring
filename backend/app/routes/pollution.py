@@ -1,6 +1,7 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.database import get_db
 from app.dependencies import get_current_user, get_current_admin
 from app.models import PollutionData, User
@@ -20,6 +21,8 @@ def add_pollution_data(
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin)
 ):
+    if pm25 < 0 or pm10 < 0 or (no2 is not None and no2 < 0):
+        raise HTTPException(status_code=400, detail="Invalid pollution values")
     aqi = calculate_aqi(pm25)
 
     data = PollutionData(
@@ -134,3 +137,45 @@ def predict_pollution(pm25: float, pm10: float, no2: float):
         "no2": no2,
         "predicted_aqi": aqi
     }
+
+@router.get("/analytics/average")
+def average_aqi(db: Session = Depends(get_db)):
+    results = db.query(
+        PollutionData.location,
+        func.avg(PollutionData.aqi).label("avg_aqi")
+    ).group_by(PollutionData.location).all()
+
+    return [
+        {
+            "location": r.location,
+            "average_aqi": round(r.avg_aqi, 2)
+        }
+        for r in results
+    ]
+
+@router.get("/analytics/latest")
+def latest_pollution(db: Session = Depends(get_db)):
+    subquery = (
+        db.query(
+            PollutionData.location,
+            func.max(PollutionData.recorded_at).label("latest")
+        ).group_by(PollutionData.location).subquery()
+    )
+
+    return db.query(PollutionData).join(
+        subquery,
+        (PollutionData.location == subquery.c.location) &
+        (PollutionData.recorded_at == subquery.c.latest)
+    ).all()
+
+@router.get("/analytics/worst")
+def most_polluted(db: Session = Depends(get_db)):
+    return db.query(PollutionData).order_by(
+        PollutionData.aqi.desc()
+    ).first()
+
+@router.get("/public/current")
+def public_current_pollution(db: Session = Depends(get_db)):
+    return db.query(PollutionData).order_by(
+        PollutionData.recorded_at.desc()
+    ).limit(10).all()
